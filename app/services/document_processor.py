@@ -4,20 +4,22 @@ import os
 from typing import List
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pinecone import Pinecone
 from app.core.config import settings
+
 
 # ── Initialize clients ─────────────────────────────────────────────────────
 def get_pinecone_index():
     pc = Pinecone(api_key=settings.PINECONE_API_KEY)
     return pc.Index(settings.PINECONE_INDEX)
 
+
 def get_embeddings():
     return OpenAIEmbeddings(
-        model=settings.OPENAI_EMBEDDING_MODEL,
-        openai_api_key=settings.OPENAI_API_KEY
+        model=settings.OPENAI_EMBEDDING_MODEL, openai_api_key=settings.OPENAI_API_KEY
     )
+
 
 # ── Download file from S3 URL ──────────────────────────────────────────────
 async def download_file(url: str, suffix: str) -> str:
@@ -31,6 +33,7 @@ async def download_file(url: str, suffix: str) -> str:
     tmp.close()
     return tmp.name
 
+
 # ── Process document ───────────────────────────────────────────────────────
 async def process_document(
     document_id: str,
@@ -38,7 +41,7 @@ async def process_document(
     file_type: str,
     org_id: str,
     department_id: str = None,
-    visibility: str = "DEPARTMENT"
+    visibility: str = "DEPARTMENT",
 ) -> int:
     """
     Downloads document from S3, splits into chunks,
@@ -63,7 +66,7 @@ async def process_document(
             document_id=document_id,
             org_id=org_id,
             department_id=department_id,
-            visibility=visibility
+            visibility=visibility,
         )
 
         return len(chunks)
@@ -73,6 +76,7 @@ async def process_document(
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
+
 # ── Load and split document into chunks ───────────────────────────────────
 async def load_and_split(file_path: str, file_type: str) -> List:
     file_type = file_type.lower()
@@ -80,31 +84,35 @@ async def load_and_split(file_path: str, file_type: str) -> List:
     # For PDFs
     if file_type == "pdf":
         loader = PyPDFLoader(file_path)
-        pages  = loader.load()
+        pages = loader.load()
     # For text files
     elif file_type in ["txt", "csv"]:
         from langchain_community.document_loaders import TextLoader
+
         loader = TextLoader(file_path, encoding="utf-8")
-        pages  = loader.load()
+        pages = loader.load()
     # For Word documents
     elif file_type in ["doc", "docx"]:
         from langchain_community.document_loaders import Docx2txtLoader
+
         loader = Docx2txtLoader(file_path)
-        pages  = loader.load()
+        pages = loader.load()
     else:
         # Fallback — try as text
         from langchain_community.document_loaders import TextLoader
+
         loader = TextLoader(file_path, encoding="utf-8", autodetect_encoding=True)
-        pages  = loader.load()
+        pages = loader.load()
 
     # Split into chunks
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,       # 1000 chars per chunk
-        chunk_overlap=200,     # 200 chars overlap between chunks
+        chunk_size=1000,  # 1000 chars per chunk
+        chunk_overlap=200,  # 200 chars overlap between chunks
         length_function=len,
     )
     chunks = splitter.split_documents(pages)
     return chunks
+
 
 # ── Store chunks in Pinecone ───────────────────────────────────────────────
 async def store_in_pinecone(
@@ -112,10 +120,10 @@ async def store_in_pinecone(
     document_id: str,
     org_id: str,
     department_id: str = None,
-    visibility: str = "DEPARTMENT"
+    visibility: str = "DEPARTMENT",
 ):
     embeddings_model = get_embeddings()
-    index            = get_pinecone_index()
+    index = get_pinecone_index()
 
     # Delete existing vectors for this document (re-processing case)
     try:
@@ -126,8 +134,8 @@ async def store_in_pinecone(
     # Batch process chunks
     batch_size = 100
     for i in range(0, len(chunks), batch_size):
-        batch  = chunks[i:i + batch_size]
-        texts  = [chunk.page_content for chunk in batch]
+        batch = chunks[i : i + batch_size]
+        texts = [chunk.page_content for chunk in batch]
 
         # Create embeddings
         vectors = embeddings_model.embed_documents(texts)
@@ -135,22 +143,25 @@ async def store_in_pinecone(
         # Prepare records for Pinecone
         records = []
         for j, (chunk, vector) in enumerate(zip(batch, vectors)):
-            records.append({
-                "id": f"{document_id}_chunk_{i + j}",
-                "values": vector,
-                "metadata": {
-                    "document_id":   document_id,
-                    "org_id":        org_id,
-                    "department_id": department_id or "",
-                    "visibility":    visibility,
-                    "text":          chunk.page_content,
-                    "page":          chunk.metadata.get("page", 0),
-                    "chunk_index":   i + j,
+            records.append(
+                {
+                    "id": f"{document_id}_chunk_{i + j}",
+                    "values": vector,
+                    "metadata": {
+                        "document_id": document_id,
+                        "org_id": org_id,
+                        "department_id": department_id or "",
+                        "visibility": visibility,
+                        "text": chunk.page_content,
+                        "page": chunk.metadata.get("page", 0),
+                        "chunk_index": i + j,
+                    },
                 }
-            })
+            )
 
         # Upsert to Pinecone
         index.upsert(vectors=records)
+
 
 # ── Delete document vectors from Pinecone ─────────────────────────────────
 async def delete_document_vectors(document_id: str):
