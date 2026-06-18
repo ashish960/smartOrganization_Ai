@@ -12,6 +12,7 @@ from app.services.chat_service import chat
 
 router = APIRouter()
 
+
 # ── Health check ───────────────────────────────────────────────────────────
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -19,6 +20,7 @@ async def health_check():
         status="healthy",
         service="SmartOrg AI Service",
     )
+
 
 # ── Process document ───────────────────────────────────────────────────────
 # Called by Node backend when a document is uploaded
@@ -29,6 +31,7 @@ async def process_document_route(
 ):
     # Simple internal API key check
     from app.core.config import settings
+
     if x_internal_key != settings.INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -52,6 +55,7 @@ async def process_document_route(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ── Delete document vectors ────────────────────────────────────────────────
 # Called by Node backend when a document is deleted
 @router.delete("/document/{document_id}")
@@ -60,6 +64,7 @@ async def delete_document_route(
     x_internal_key: Optional[str] = Header(None),
 ):
     from app.core.config import settings
+
     if x_internal_key != settings.INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -69,6 +74,7 @@ async def delete_document_route(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # ── Chat ───────────────────────────────────────────────────────────────────
 @router.post("/chat", response_model=ChatResponse)
 async def chat_route(
@@ -76,6 +82,7 @@ async def chat_route(
     x_internal_key: Optional[str] = Header(None),
 ):
     from app.core.config import settings
+
     if x_internal_key != settings.INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -88,6 +95,9 @@ async def chat_route(
             conversation_history=request.conversation_history or [],
             user_id=request.user_id,
             role=request.role,
+            scope_type=request.scope_type,
+            scope_document_id=request.scope_document_id,
+            scope_department_id=request.scope_department_id,
         )
 
         return ChatResponse(

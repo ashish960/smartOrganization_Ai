@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
 
+
 # ── Document Processing ────────────────────────────────────────────────────
 class ProcessDocumentRequest(BaseModel):
     document_id: str
@@ -10,16 +11,19 @@ class ProcessDocumentRequest(BaseModel):
     department_id: Optional[str] = None
     visibility: str = "DEPARTMENT"
 
+
 class ProcessDocumentResponse(BaseModel):
     success: bool
     document_id: str
     chunks_processed: int
     message: str
 
+
 # ── Chat ──────────────────────────────────────────────────────────────────
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
+
 
 class ChatRequest(BaseModel):
     question: str
@@ -29,11 +33,16 @@ class ChatRequest(BaseModel):
     conversation_history: Optional[List[ChatMessage]] = []
     user_id: str
     role: str
+    scope_type: str = "all"
+    scope_document_id: Optional[str] = None
+    scope_department_id: Optional[str] = None
+
 
 class ChatResponse(BaseModel):
     answer: str
     sources: List[dict]
     conversation_history: List[ChatMessage]
+
 
 # ── Health ────────────────────────────────────────────────────────────────
 class HealthResponse(BaseModel):

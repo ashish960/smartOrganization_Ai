@@ -23,7 +23,7 @@ def get_llm():
     return ChatOpenAI(
         model=settings.OPENAI_CHAT_MODEL,
         openai_api_key=settings.OPENAI_API_KEY,
-        temperature=0.1,  # low temperature = more factual answers
+        temperature=0.1,
         max_tokens=1000,
     )
 
@@ -32,43 +32,45 @@ def get_llm():
 def build_access_filter(
     org_id: str, department_id: Optional[str], allowed_dept_ids: List[str], role: str
 ) -> dict:
-    """
-    Builds a Pinecone metadata filter so users only see
-    documents they have access to based on their role and department.
-    """
     if role == "ORG_ADMIN":
-        # ORG_ADMIN sees everything in their org
         return {"org_id": org_id}
 
     elif role == "VIEWER":
-        # VIEWER sees only PUBLIC docs and their own dept docs
         if department_id:
             return {
                 "org_id": org_id,
                 "$or": [
                     {"visibility": "PUBLIC"},
                     {"department_id": department_id},
+                    {"department_id": "NO_DEPT"},  # docs with no dept assigned
                 ],
             }
-        return {"org_id": org_id, "visibility": "PUBLIC"}
+        return {
+            "org_id": org_id,
+            "$or": [
+                {"visibility": "PUBLIC"},
+                {"department_id": "NO_DEPT"},
+            ],
+        }
 
     else:
-        # USER / DEPT_MANAGER — public + own dept + cross-access depts
+        # USER / DEPT_MANAGER
         accessible_depts = (
             list(set([department_id] + (allowed_dept_ids or [])))
             if department_id
             else allowed_dept_ids or []
         )
 
-        if accessible_depts:
-            return {
-                "org_id": org_id,
-                "$or": [
-                    {"visibility": "PUBLIC"},
-                    *[{"department_id": dept_id} for dept_id in accessible_depts],
-                ],
-            }
-        return {"org_id": org_id, "visibility": "PUBLIC"}
+        dept_filters = [{"department_id": dept_id} for dept_id in accessible_depts]
+
+        return {
+            "org_id": org_id,
+            "$or": [
+                {"visibility": "PUBLIC"},
+                {"department_id": "NO_DEPT"},  # public docs with no dept
+                *dept_filters,
+            ],
+        }
 
 
 # ── Retrieve relevant chunks from Pinecone ────────────────────────────────
@@ -79,25 +81,72 @@ async def retrieve_relevant_chunks(
     allowed_dept_ids: List[str],
     role: str,
     top_k: int = 5,
+    scope_type: str = "all",
+    scope_document_id: Optional[str] = None,
+    scope_department_id: Optional[str] = None,
 ) -> List[dict]:
     embeddings_model = get_embeddings()
     index = get_pinecone_index()
 
-    # 1. Embed the question
     question_vector = embeddings_model.embed_query(question)
 
-    # 2. Build access filter
-    access_filter = build_access_filter(org_id, department_id, allowed_dept_ids, role)
+    # ── Build filter based on scope ────────────────────────────────────────
+    if scope_type == "document" and scope_document_id:
+        # Exact document only
+        access_filter = {
+            "org_id": org_id,
+            "document_id": scope_document_id,
+        }
 
-    # 3. Search Pinecone
+    elif scope_type == "department" and scope_department_id:
+        # Selected dept + its cross-access depts + PUBLIC + NO_DEPT public docs
+        accessible = list(set([scope_department_id] + (allowed_dept_ids or [])))
+        access_filter = {
+            "org_id": org_id,
+            "$or": [
+                {"visibility": "PUBLIC"},
+                {"department_id": "NO_DEPT"},
+                *[{"department_id": dept_id} for dept_id in accessible],
+            ],
+        }
+
+    else:
+        # scope = "all" — full role-based access filter
+        access_filter = build_access_filter(
+            org_id, department_id, allowed_dept_ids, role
+        )
+
+    # ── DEBUG LOGS ─────────────────────────────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"DEBUG scope_type         : {scope_type}")
+    print(f"DEBUG scope_document_id  : {scope_document_id}")
+    print(f"DEBUG scope_department_id: {scope_department_id}")
+    print(f"DEBUG department_id      : {department_id}")
+    print(f"DEBUG allowed_dept_ids   : {allowed_dept_ids}")
+    print(f"DEBUG role               : {role}")
+    print(f"DEBUG org_id             : {org_id}")
+    print(f"DEBUG access_filter      : {access_filter}")
+    print(f"{'='*60}\n")
+
     results = index.query(
         vector=question_vector, top_k=top_k, include_metadata=True, filter=access_filter
     )
 
-    # 4. Return relevant chunks
+    # ── DEBUG RESULTS ──────────────────────────────────────────────────────
+    print(f"DEBUG total matches returned     : {len(results.matches)}")
+    print(
+        f"DEBUG matches above 0.7 threshold: {len([m for m in results.matches if m.score > 0.7])}"
+    )
+    if results.matches:
+        print(f"DEBUG first match score    : {results.matches[0].score}")
+        print(f"DEBUG first match metadata : {results.matches[0].metadata}")
+    else:
+        print("DEBUG no matches returned from Pinecone at all")
+    print(f"{'='*60}\n")
+
     chunks = []
     for match in results.matches:
-        if match.score > 0.7:  # only include high-relevance chunks
+        if match.score > 0.7:
             chunks.append(
                 {
                     "text": match.metadata.get("text", ""),
@@ -117,7 +166,6 @@ async def generate_answer(
     llm = get_llm()
     parser = StrOutputParser()
 
-    # Build context from retrieved chunks
     if context_chunks:
         context = "\n\n".join(
             [
@@ -128,14 +176,12 @@ async def generate_answer(
     else:
         context = "No relevant documents found."
 
-    # Build conversation history string
     history_text = ""
     if conversation_history:
-        for msg in conversation_history[-6:]:  # last 6 messages for context
+        for msg in conversation_history[-6:]:
             role = "User" if msg.role == "user" else "Assistant"
             history_text += f"{role}: {msg.content}\n"
 
-    # System prompt
     system_prompt = """You are SmartOrg AI, an intelligent document assistant for enterprise organizations.
 Your job is to answer questions based ONLY on the provided document context.
 
@@ -146,7 +192,6 @@ Rules:
 - Cite which document chunk you used when relevant
 - Never make up information not present in the context"""
 
-    # Build the prompt
     prompt_template = ChatPromptTemplate.from_messages(
         [
             ("system", system_prompt),
@@ -187,30 +232,32 @@ async def chat(
     conversation_history: List[ChatMessage],
     user_id: str,
     role: str,
+    scope_type: str = "all",
+    scope_document_id: Optional[str] = None,
+    scope_department_id: Optional[str] = None,
 ) -> dict:
-    # 1. Retrieve relevant chunks from Pinecone
     chunks = await retrieve_relevant_chunks(
         question=question,
         org_id=org_id,
         department_id=department_id,
         allowed_dept_ids=allowed_dept_ids,
         role=role,
+        scope_type=scope_type,
+        scope_document_id=scope_document_id,
+        scope_department_id=scope_department_id,
     )
 
-    # 2. Generate answer using GPT
     answer = await generate_answer(
         question=question,
         context_chunks=chunks,
         conversation_history=conversation_history,
     )
 
-    # 3. Update conversation history
     updated_history = conversation_history + [
         ChatMessage(role="user", content=question),
         ChatMessage(role="assistant", content=answer),
     ]
 
-    # 4. Build sources (without duplicate documents)
     seen_docs = set()
     sources = []
     for chunk in chunks:
