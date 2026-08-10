@@ -2,7 +2,6 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 
-# ── Document Processing ────────────────────────────────────────────────────
 class ProcessDocumentRequest(BaseModel):
     document_id: str
     s3_url: str
@@ -19,9 +18,8 @@ class ProcessDocumentResponse(BaseModel):
     message: str
 
 
-# ── Chat ──────────────────────────────────────────────────────────────────
 class ChatMessage(BaseModel):
-    role: str  # "user" or "assistant"
+    role: str
     content: str
 
 
@@ -44,7 +42,6 @@ class ChatResponse(BaseModel):
     conversation_history: List[ChatMessage]
 
 
-# ── Health ────────────────────────────────────────────────────────────────
 class HealthResponse(BaseModel):
     status: str
     service: str

@@ -9,7 +9,6 @@ from pinecone import Pinecone
 from app.core.config import settings
 
 
-# ── Initialize clients ─────────────────────────────────────────────────────
 def get_pinecone_index():
     pc = Pinecone(api_key=settings.PINECONE_API_KEY)
     return pc.Index(settings.PINECONE_INDEX)
@@ -21,7 +20,6 @@ def get_embeddings():
     )
 
 
-# ── Download file from S3 URL ──────────────────────────────────────────────
 async def download_file(url: str, suffix: str) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.get(url, follow_redirects=True)
@@ -33,7 +31,6 @@ async def download_file(url: str, suffix: str) -> str:
     return tmp.name
 
 
-# ── Process document ───────────────────────────────────────────────────────
 async def process_document(
     document_id: str,
     s3_url: str,
@@ -67,7 +64,6 @@ async def process_document(
             os.unlink(tmp_path)
 
 
-# ── Load and split document into chunks ───────────────────────────────────
 async def load_and_split(file_path: str, file_type: str) -> List:
     file_type = file_type.lower()
 
@@ -99,7 +95,6 @@ async def load_and_split(file_path: str, file_type: str) -> List:
     return chunks
 
 
-# ── Store chunks in Pinecone ───────────────────────────────────────────────
 async def store_in_pinecone(
     chunks: List,
     document_id: str,
@@ -110,7 +105,6 @@ async def store_in_pinecone(
     embeddings_model = get_embeddings()
     index = get_pinecone_index()
 
-    # Delete existing vectors for this document (re-processing case)
     try:
         index.delete(filter={"document_id": document_id})
     except Exception:
@@ -132,8 +126,6 @@ async def store_in_pinecone(
                     "metadata": {
                         "document_id": document_id,
                         "org_id": org_id,
-                        # ── FIX: use "NO_DEPT" instead of "" ──────────────
-                        # Empty string causes Pinecone filter mismatches
                         "department_id": department_id if department_id else "NO_DEPT",
                         "visibility": visibility,
                         "text": chunk.page_content,
@@ -146,7 +138,6 @@ async def store_in_pinecone(
         index.upsert(vectors=records)
 
 
-# ── Delete document vectors from Pinecone ─────────────────────────────────
 async def delete_document_vectors(document_id: str):
     index = get_pinecone_index()
     index.delete(filter={"document_id": document_id})

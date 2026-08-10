@@ -13,7 +13,6 @@ from app.services.chat_service import chat
 router = APIRouter()
 
 
-# ── Health check ───────────────────────────────────────────────────────────
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     return HealthResponse(
@@ -22,14 +21,11 @@ async def health_check():
     )
 
 
-# ── Process document ───────────────────────────────────────────────────────
-# Called by Node backend when a document is uploaded
 @router.post("/process-document", response_model=ProcessDocumentResponse)
 async def process_document_route(
     request: ProcessDocumentRequest,
     x_internal_key: Optional[str] = Header(None),
 ):
-    # Simple internal API key check
     from app.core.config import settings
 
     if x_internal_key != settings.INTERNAL_API_KEY:
@@ -56,8 +52,6 @@ async def process_document_route(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Delete document vectors ────────────────────────────────────────────────
-# Called by Node backend when a document is deleted
 @router.delete("/document/{document_id}")
 async def delete_document_route(
     document_id: str,
@@ -75,7 +69,6 @@ async def delete_document_route(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Chat ───────────────────────────────────────────────────────────────────
 @router.post("/chat", response_model=ChatResponse)
 async def chat_route(
     request: ChatRequest,

@@ -7,7 +7,6 @@ from app.core.config import settings
 from app.models.schemas import ChatMessage
 
 
-# ── Initialize clients ─────────────────────────────────────────────────────
 def get_pinecone_index():
     pc = Pinecone(api_key=settings.PINECONE_API_KEY)
     return pc.Index(settings.PINECONE_INDEX)
@@ -28,7 +27,6 @@ def get_llm():
     )
 
 
-# ── Build Pinecone filter based on user's access ───────────────────────────
 def build_access_filter(
     org_id: str, department_id: Optional[str], allowed_dept_ids: List[str], role: str
 ) -> dict:
@@ -42,7 +40,7 @@ def build_access_filter(
                 "$or": [
                     {"visibility": "PUBLIC"},
                     {"department_id": department_id},
-                    {"department_id": "NO_DEPT"},  # docs with no dept assigned
+                    {"department_id": "NO_DEPT"},
                 ],
             }
         return {
@@ -54,7 +52,6 @@ def build_access_filter(
         }
 
     else:
-        # USER / DEPT_MANAGER
         accessible_depts = (
             list(set([department_id] + (allowed_dept_ids or [])))
             if department_id
@@ -67,13 +64,12 @@ def build_access_filter(
             "org_id": org_id,
             "$or": [
                 {"visibility": "PUBLIC"},
-                {"department_id": "NO_DEPT"},  # public docs with no dept
+                {"department_id": "NO_DEPT"},
                 *dept_filters,
             ],
         }
 
 
-# ── Retrieve relevant chunks from Pinecone ────────────────────────────────
 async def retrieve_relevant_chunks(
     question: str,
     org_id: str,
@@ -90,16 +86,13 @@ async def retrieve_relevant_chunks(
 
     question_vector = embeddings_model.embed_query(question)
 
-    # ── Build filter based on scope ────────────────────────────────────────
     if scope_type == "document" and scope_document_id:
-        # Exact document only
         access_filter = {
             "org_id": org_id,
             "document_id": scope_document_id,
         }
 
     elif scope_type == "department" and scope_department_id:
-        # Selected dept + its cross-access depts + PUBLIC + NO_DEPT public docs
         accessible = list(set([scope_department_id] + (allowed_dept_ids or [])))
         access_filter = {
             "org_id": org_id,
@@ -111,38 +104,13 @@ async def retrieve_relevant_chunks(
         }
 
     else:
-        # scope = "all" — full role-based access filter
         access_filter = build_access_filter(
             org_id, department_id, allowed_dept_ids, role
         )
 
-    # ── DEBUG LOGS ─────────────────────────────────────────────────────────
-    print(f"\n{'='*60}")
-    print(f"DEBUG scope_type         : {scope_type}")
-    print(f"DEBUG scope_document_id  : {scope_document_id}")
-    print(f"DEBUG scope_department_id: {scope_department_id}")
-    print(f"DEBUG department_id      : {department_id}")
-    print(f"DEBUG allowed_dept_ids   : {allowed_dept_ids}")
-    print(f"DEBUG role               : {role}")
-    print(f"DEBUG org_id             : {org_id}")
-    print(f"DEBUG access_filter      : {access_filter}")
-    print(f"{'='*60}\n")
-
     results = index.query(
         vector=question_vector, top_k=top_k, include_metadata=True, filter=access_filter
     )
-
-    # ── DEBUG RESULTS ──────────────────────────────────────────────────────
-    print(f"DEBUG total matches returned     : {len(results.matches)}")
-    print(
-        f"DEBUG matches above 0.7 threshold: {len([m for m in results.matches if m.score > 0.7])}"
-    )
-    if results.matches:
-        print(f"DEBUG first match score    : {results.matches[0].score}")
-        print(f"DEBUG first match metadata : {results.matches[0].metadata}")
-    else:
-        print("DEBUG no matches returned from Pinecone at all")
-    print(f"{'='*60}\n")
 
     chunks = []
     for match in results.matches:
@@ -159,7 +127,6 @@ async def retrieve_relevant_chunks(
     return chunks
 
 
-# ── Generate answer using GPT ─────────────────────────────────────────────
 async def generate_answer(
     question: str, context_chunks: List[dict], conversation_history: List[ChatMessage]
 ) -> str:
@@ -223,7 +190,6 @@ Please answer based on the document context provided.""",
     return answer
 
 
-# ── Main chat function ────────────────────────────────────────────────────
 async def chat(
     question: str,
     org_id: str,

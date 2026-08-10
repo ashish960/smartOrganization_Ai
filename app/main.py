@@ -3,14 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.core.config import settings
 
-# ── Create FastAPI app ─────────────────────────────────────────────────────
 app = FastAPI(
     title=settings.APP_NAME,
     version="1.0.0",
     description="AI microservice for SmartOrg — handles document processing and RAG-based chat",
 )
 
-# ── CORS ───────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5000"],
@@ -19,10 +17,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routes ─────────────────────────────────────────────────────────────────
 app.include_router(router, prefix="/api/ai")
 
-# ── Root ───────────────────────────────────────────────────────────────────
 @app.get("/")
 async def root():
     return {
