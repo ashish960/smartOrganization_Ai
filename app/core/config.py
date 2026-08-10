@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "SmartOrg AI Service"
     PORT: int = 8000
     DEBUG: bool = False
+    CORS_ORIGINS: str = "*"
 
     OPENAI_API_KEY: str
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-ada-002"
